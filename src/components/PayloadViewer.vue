@@ -86,6 +86,7 @@ onBeforeUnmount(() => clearTimeout(copiedTimer))
           <input v-model="wrap" type="checkbox" />
           {{ messages.wrap }}
         </label>
+        <slot name="actions" />
         <button type="button" class="csg-btn csg-btn--sm" @click="copy">
           {{ copied ? messages.copied : messages.copy }}
         </button>
@@ -114,19 +115,28 @@ onBeforeUnmount(() => clearTimeout(copiedTimer))
 }
 .csg-payload__bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--csg-border);
   font-size: 12px;
 }
 .csg-payload__meta {
   color: var(--csg-text-muted);
+  white-space: nowrap;
+}
+.csg-payload__bar > * {
+  flex: none;
+}
+.csg-payload__bar > .csg-payload__spacer {
+  flex: 1;
 }
 .csg-payload__spacer {
   flex: 1;
 }
 .csg-payload__wrap {
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 4px;

@@ -19,6 +19,8 @@ const props = withDefaults(
     tab?: DetailTab
     /** 표시 모드 (팝업 전환 버튼 아이콘 결정) — 미지정 시 버튼 숨김 */
     mode?: DetailMode
+    /** Payload 탭에 '새 창으로 열기' 버튼 표시 */
+    canOpenWindow?: boolean
   }>(),
   {
     payloadField: () => ['payload', '_raw'],
@@ -27,6 +29,7 @@ const props = withDefaults(
     messages: () => DEFAULT_MESSAGES,
     tab: 'fields',
     mode: undefined,
+    canOpenWindow: false,
   },
 )
 
@@ -35,6 +38,7 @@ const emit = defineEmits<{
   filter: [field: string, op: FilterOp, value: unknown]
   'update:tab': [tab: DetailTab]
   'toggle-mode': []
+  'open-window': []
 }>()
 
 const MAX_CELL = 400
@@ -149,7 +153,13 @@ const tabs = computed(() => {
       :value="payloadValue"
       :encoding="payloadEncoding"
       :messages="messages"
-    />
+    >
+      <template v-if="canOpenWindow" #actions>
+        <button type="button" class="csg-btn csg-btn--sm csg-detail__openwin" :title="messages.openWindow" @click="emit('open-window')">
+          ⧉ {{ messages.newWindow }}
+        </button>
+      </template>
+    </PayloadViewer>
 
     <pre v-else class="csg-detail__raw">{{ json }}</pre>
   </div>

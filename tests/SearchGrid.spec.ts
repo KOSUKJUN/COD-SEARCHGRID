@@ -23,7 +23,11 @@ describe('SearchGrid (local mode)', () => {
   it('행을 렌더링하고 심각도 클래스를 붙인다', () => {
     const w = mount(SearchGrid, { props: { columns, rows } })
     expect(hosts(w)).toEqual(['web-02', 'web-01', 'db-01'])
-    expect(w.find('.csg-sev--critical').exists()).toBe(true)
+    // 심각도 색상 막대는 기본 꺼짐, severityBar 로 켤 수 있다
+    expect(w.find('.csg-sev--critical').exists()).toBe(false)
+    const w2 = mount(SearchGrid, { props: { columns, rows, severityBar: true } })
+    expect(w2.find('.csg-sev--critical').exists()).toBe(true)
+    expect(w2.classes()).toContain('csg--sevbar')
     expect(w.find('.csg-status__count').text()).toContain('3')
   })
 

@@ -129,6 +129,8 @@ export interface GridFeatures {
   contextMenu: boolean
   keyboard: boolean
   groupChart: boolean
+  /** Payload 플로팅 창 / 비교 */
+  payloadWindows: boolean
 }
 
 export interface ColumnState {
@@ -225,6 +227,29 @@ export interface GridMessages {
   copiedRows: string
   edit: string
   saved: string
+  // --- floating windows / diff
+  openWindow: string
+  newWindow: string
+  openWindows: string
+  windows: string
+  minimize: string
+  maximize: string
+  restore: string
+  tile: string
+  cascade: string
+  closeAll: string
+  compare: string
+  compareHint: string
+  comparePayload: string
+  diffTitle: string
+  onlyChanges: string
+  ignoreWhitespace: string
+  swap: string
+  nextChange: string
+  prevChange: string
+  identical: string
+  diffTooLarge: string
+  sameLines: string
   viewDetail: string
   popout: string
   dock: string

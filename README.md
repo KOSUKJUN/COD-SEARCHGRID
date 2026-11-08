@@ -2,12 +2,20 @@
 
 SIEM / Splunk 스타일 **로그 검색 그리드** Vue 3 컴포넌트 라이브러리.
 
+> 📘 사용자 · 개발자 매뉴얼 (Word): [docs/manual/COD-SEARCHGRID-Manual-ko.docx](docs/manual/COD-SEARCHGRID-Manual-ko.docx)
+> — `npm run manual:shots` 로 스크린샷, `npm run manual` 로 문서를 다시 생성합니다.
+
 - SPL 스타일 쿼리: `error`, `"phrase"`, `host=web-*`, `severity!=info`, `dest_port>=1024`, `NOT blocked`, `geo.country=KR`
 - 가상 스크롤 (수십만 행) + 원격 데이터 소스 무한 스크롤
 - 검색어 하이라이트, 컬럼 정렬 / 폭 조절, 심각도 색상
 - **Group by 패널**: 컬럼 헤더를 드래그(또는 `+ 그룹 추가`)해서 다단계 그룹핑, 그룹별 건수/비율 표시
 - **Payload 뷰어**: Text / JSON / Hex dump, base64·hex 디코딩, 복사, 줄바꿈 (행 더블클릭으로 바로 열기)
 - 이벤트 상세 패널 (필드 값 `+`/`−` 클릭으로 검색 조건 추가/제외, JSON 보기, 폭 조절, **팝업(모달) 전환**)
+- **Payload 플로팅 창 / 비교**: 브라우저 새 창이 아닌 그리드 내부 창으로 여러 payload 를 동시에 띄워 비교
+  - 창 이동(제목줄 드래그, Alt+방향키) · 크기 조절(가장자리, Alt+Shift+방향키) · 최소화/최대화(제목줄 더블클릭) · Esc 닫기
+  - 하단 작업표시줄: 창 전환, 나란히 보기(타일), 계단식, 모두 닫기
+  - **Diff 비교 창**: 좌우 정렬, 줄 내부 변경 강조, 변경만 보기/공백 무시/좌우 바꾸기/이전·다음 변경 이동, JSON 은 키 정렬 후 비교, 바이너리는 Hex dump 비교
+  - 여는 방법: 상세 Payload 탭의 `⧉ 새 창`, 우클릭 메뉴, `Shift+Enter`, 선택 바(`선택 n건 새 창으로`, 2건이면 `Payload 비교`), 창 제목줄의 `⇄` 를 두 창에서 차례로 클릭
 - **그룹 분포 차트**: 1레벨 막대 + 2레벨 누적 막대, 범례/툴팁, 클릭 시 해당 그룹으로 이동
 - **컬럼 관리**: 숨김/표시, 드래그 재배치(헤더 또는 컬럼 메뉴), 좌측 고정(frozen), 폭 자동 맞춤(리사이즈 핸들 더블클릭)
 - **선택**: 체크박스 / 전체 선택 / Shift 범위 / Ctrl 토글, 선택 바(복사·CSV·JSON·사용자 액션 슬롯)
@@ -120,6 +128,9 @@ const dataSource: DataSource = async ({ query, offset, limit, sort, signal }) =>
 | `suggest` | `(field, prefix, query) => string[]` | – | 자동완성 값 제안 |
 | `contextMenu` | `boolean \| (ctx) => MenuItem[]` | `true` | 컨텍스트 메뉴 on/off·커스터마이징 |
 | `exportFileName` | `string` | `events` | 내보내기 파일명 접두어 |
+| `windowFields` | `string[]` | 앞쪽 4개 컬럼 | Payload 창 상단에 표시할 필드 |
+| `windowTitle` | `(row) => string` | 앞쪽 2개 컬럼 값 | Payload 창 제목 |
+| `maxWindows` | `number` | `12` | 동시에 열 수 있는 창 수 (초과 시 가장 오래된 창을 닫음) |
 | `features` | `Partial<GridFeatures>` | 모두 `true` | `filterBuilder`, `columnChooser`, `export`, `wrapToggle`, `bookmarks`, `history`, `autocomplete`, `contextMenu`, `keyboard`, `groupChart` |
 
 컬럼 옵션(`GridColumn`)에는 `hidden`, `frozen`, `editable`, `groupable` 이 추가되었습니다.
@@ -128,7 +139,8 @@ const dataSource: DataSource = async ({ query, offset, limit, sort, signal }) =>
 | `pageSize` | `number` | `200` | 원격 페이지 크기 |
 | `height` | `string` | `100%` | 컴포넌트 높이 |
 | `theme` | `'light' \| 'dark'` | `light` | 테마 |
-| `severityField` | `string` | `severity` | 행 색상 기준 필드 (critical/high/medium/low/info) |
+| `severityBar` | `boolean` | `false` | 행 맨 앞 심각도 색상 막대 표시 |
+| `severityField` | `string` | `severity` | 색상 막대 기준 필드 (critical/high/medium/low/info) |
 | `showDetail` | `boolean` | `true` | 상세 패널 표시 |
 | `immediate` | `boolean` | `true` | 마운트 시 자동 검색 |
 | `defaultSort` | `SortState` | – | 초기 정렬 |
@@ -152,7 +164,7 @@ const dataSource: DataSource = async ({ query, offset, limit, sort, signal }) =>
 `toolbar`, `status`, `empty`, `cell-<field>` (`{ row, value, column }`)
 
 ### Exposed methods (`ref`)
-`search(query?)`, `refresh()`, `addFilter(field, op, value)`, `scrollToIndex(i)`, `setGroupBy(fields)`, `setSort(sort)`, `expandAll()` (로컬 모드), `collapseAll()`, `getSelection()`, `selectAll()`, `clearSelection()`, `copySelection()`, `exportData(format, scope)`, `getState()`, `applyState(state)`, `resetState()`, `focus()`
+`search(query?)`, `refresh()`, `addFilter(field, op, value)`, `scrollToIndex(i)`, `setGroupBy(fields)`, `setSort(sort)`, `expandAll()` (로컬 모드), `collapseAll()`, `getSelection()`, `selectAll()`, `clearSelection()`, `copySelection()`, `exportData(format, scope)`, `openPayloadWindow(row)`, `openPayloadWindows(rows)`, `comparePayloads(a, b)`, `tileWindows()`, `closeAllWindows()`, `getState()`, `applyState(state)`, `resetState()`, `focus()`
 
 ### Slots (추가)
 `selection-actions` (`{ rows, clear }`) — 선택 바에 사용자 정의 버튼 (예: 티켓 생성, 삭제)

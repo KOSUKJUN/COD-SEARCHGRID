@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { markRaw, nextTick } from 'vue'
 import { SearchGrid, type GridColumn, type LogRecord } from '../src'
 
 const columns: GridColumn[] = [
@@ -17,7 +17,11 @@ const makeRows = (): LogRecord[] => [
 
 let wrappers: VueWrapper[] = []
 function mk(props: Record<string, unknown> = {}) {
-  const w = mount(SearchGrid, { props: { columns, rows: makeRows(), rowKey: 'id', ...props }, attachTo: document.body })
+  // 실제 사용처처럼 비반응형(raw) 행 배열을 넘긴다
+  const w = mount(SearchGrid, {
+    props: { columns, rows: markRaw(makeRows()), rowKey: 'id', ...props },
+    attachTo: document.body,
+  })
   wrappers.push(w)
   return w
 }
@@ -152,6 +156,9 @@ describe('셀 편집', () => {
     const w = mk()
     const cell = dataRows(w)[0].findAll('.csg-td:not(.csg-td--lead)')[3]
     expect(cell.classes()).toContain('csg-td--editable')
+    // 실제 브라우저처럼 click → dblclick 순서. 편집 셀 클릭은 상세 패널을 열지 않아야 한다
+    await cell.trigger('click')
+    expect(w.find('.csg-detail').exists()).toBe(false)
     await cell.trigger('dblclick')
     const input = w.find('.csg-cell-input')
     await input.setValue('확인 완료')
@@ -241,6 +248,86 @@ describe('기록 / 즐겨찾기 / 설정 저장', () => {
     ;(document.querySelector('.csg-bm__apply') as HTMLButtonElement).click()
     await nextTick()
     expect(dataRows(w)).toHaveLength(1)
+  })
+})
+
+describe('Payload 플로팅 창 / 비교', () => {
+  const withPayload = (): LogRecord[] => [
+    { id: 'a', host: 'web-01', severity: 'info', message: 'm1', note: '', payload: '{"user":"admin","ok":true}' },
+    { id: 'b', host: 'web-02', severity: 'high', message: 'm2', note: '', payload: '{"ok":true,"user":"root"}' },
+    { id: 'c', host: 'db-01', severity: 'low', message: 'm3', note: '' },
+  ]
+
+  it('상세 Payload 탭의 새 창 버튼 → 플로팅 창 + 작업표시줄', async () => {
+    const w = mk({ rows: withPayload() })
+    await dataRows(w)[0].trigger('dblclick')
+    await w.find('.csg-detail__openwin').trigger('click')
+    expect(w.findAll('.csg-win')).toHaveLength(1)
+    expect(w.find('.csg-win__title').text()).toBe('web-01 · info')
+    expect(w.find('.csg-win .csg-payload__body').text()).toContain('"user": "admin"')
+    expect(w.find('.csg-windock').text()).toContain('창 1')
+    // 같은 행은 중복으로 열지 않고 앞으로 가져온다
+    await w.find('.csg-detail__openwin').trigger('click')
+    expect(w.findAll('.csg-win')).toHaveLength(1)
+  })
+
+  it('Shift+Enter 로 열고, 최소화/최대화/닫기', async () => {
+    const w = mk({ rows: withPayload() })
+    const grid = w.find('.csg-scroll')
+    await grid.trigger('keydown', { key: 'ArrowDown' })
+    await grid.trigger('keydown', { key: 'Enter', shiftKey: true })
+    const win = () => w.find('.csg-win')
+    expect(win().exists()).toBe(true)
+    await win().find('[aria-label="최대화"]').trigger('click')
+    expect(win().classes()).toContain('csg-win--max')
+    await win().find('[aria-label="최소화"]').trigger('click')
+    expect((win().element as HTMLElement).style.display).toBe('none')
+    await w.find('.csg-windock__item').trigger('click')
+    expect((win().element as HTMLElement).style.display).toBe('')
+    await win().find('[aria-label="닫기"]').trigger('click')
+    expect(w.find('.csg-win').exists()).toBe(false)
+    expect(w.find('.csg-windock').exists()).toBe(false)
+  })
+
+  it('제목줄 드래그로 이동', async () => {
+    const w = mk({ rows: withPayload() })
+    ;(w.vm as unknown as { openPayloadWindow: (r: LogRecord) => void }).openPayloadWindow(withPayload()[0])
+    await nextTick()
+    const el = w.find('.csg-win').element as HTMLElement
+    const x0 = parseInt(el.style.left)
+    const bar = w.find('.csg-win__bar').element
+    bar.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, button: 0, bubbles: true }))
+    bar.dispatchEvent(new PointerEvent('pointermove', { clientX: 160, clientY: 130, bubbles: true }))
+    bar.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+    await nextTick()
+    expect(parseInt(el.style.left)).toBe(x0 + 60)
+  })
+
+  it('선택 2건 → Payload 비교(diff) 창, 키 순서 무시 후 변경 1줄', async () => {
+    const w = mk({ rows: withPayload() })
+    await dataRows(w)[0].find('.csg-check').trigger('click')
+    await dataRows(w)[1].find('.csg-check').trigger('click')
+    await w.findAll('.csg-selbar .csg-link-btn').find((b) => b.text().includes('Payload 비교'))!.trigger('click')
+    const diff = w.find('.csg-win .csg-diff')
+    expect(diff.exists()).toBe(true)
+    expect(diff.findAll('.csg-diff__stats > span').map((s) => s.text())).toEqual(['+0', '−0', '~1'])
+    expect(diff.find('.csg-diff__row--change .csg-diff__mark').text()).toBe('admin')
+  })
+
+  it('창의 ⇄ 버튼 두 번으로 비교, 작업표시줄 나란히 보기', async () => {
+    const w = mk({ rows: withPayload() })
+    await dataRows(w)[0].find('.csg-check').trigger('click')
+    await dataRows(w)[1].find('.csg-check').trigger('click')
+    await w.findAll('.csg-selbar .csg-link-btn').find((b) => b.text().includes('새 창으로'))!.trigger('click')
+    expect(w.findAll('.csg-win')).toHaveLength(2)
+    const cmp = w.findAll('.csg-win__cmp')
+    await cmp[0].trigger('click')
+    expect(cmp[0].classes()).toContain('csg-win__cmp--on')
+    await cmp[1].trigger('click')
+    expect(w.findAll('.csg-win')).toHaveLength(3)
+    expect(w.findAll('.csg-diff')).toHaveLength(1)
+    await w.findAll('.csg-windock .csg-link-btn').find((b) => b.text() === '모두 닫기')!.trigger('click')
+    expect(w.find('.csg-win').exists()).toBe(false)
   })
 })
 

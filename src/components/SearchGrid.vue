@@ -49,6 +49,11 @@ import FilterBuilder from './FilterBuilder.vue'
 import ColumnChooser from './ColumnChooser.vue'
 import Dropdown from './Dropdown.vue'
 import ContextMenu from './ContextMenu.vue'
+import FloatingWindow from './FloatingWindow.vue'
+import PayloadViewer from './PayloadViewer.vue'
+import PayloadDiff from './PayloadDiff.vue'
+import { useWindows, type FloatWin } from '../composables/useWindows'
+import type { DiffInput } from '../utils/diff'
 import '../styles/searchgrid.css'
 
 const props = withDefaults(
@@ -72,7 +77,9 @@ const props = withDefaults(
     overscan?: number
     height?: string
     theme?: GridTheme
-    /** 행 색상 구분에 사용할 심각도 필드 */
+    /** 행 맨 앞 심각도 색상 막대 표시 (기본 꺼짐) */
+    severityBar?: boolean
+    /** 심각도 색상 막대에 사용할 필드 */
     severityField?: string
     showDetail?: boolean
     /** 상세 패널 초기 폭(px) */
@@ -98,6 +105,12 @@ const props = withDefaults(
     contextMenu?: boolean | ((ctx: ContextMenuContext) => MenuItem[])
     /** 내보내기 파일명 (타임스탬프가 붙는다) */
     exportFileName?: string
+    /** Payload 창 상단에 표시할 필드 (기본: 앞쪽 4개 표시 컬럼) */
+    windowFields?: string[]
+    /** Payload 창 제목 */
+    windowTitle?: (row: LogRecord) => string
+    /** 동시에 열 수 있는 최대 창 수 */
+    maxWindows?: number
     /** 툴바 기능 on/off */
     features?: Partial<GridFeatures>
     messages?: Partial<GridMessages>
@@ -115,6 +128,7 @@ const props = withDefaults(
     overscan: 10,
     height: '100%',
     theme: 'light',
+    severityBar: false,
     severityField: 'severity',
     showDetail: true,
     detailWidth: 440,
@@ -129,6 +143,9 @@ const props = withDefaults(
     suggest: undefined,
     contextMenu: true,
     exportFileName: 'events',
+    windowFields: undefined,
+    windowTitle: undefined,
+    maxWindows: 12,
     features: () => ({}),
     messages: () => ({}),
   },
@@ -162,6 +179,7 @@ const DEFAULT_FEATURES: GridFeatures = {
   contextMenu: true,
   keyboard: true,
   groupChart: true,
+  payloadWindows: true,
 }
 const CHECK_W = 36
 const NUM_W = 56
@@ -658,7 +676,7 @@ function cellClass(col: GridColumn, row: LogRecord): string | undefined {
 }
 
 function rowClass(item: Item & { pos: number }, row: LogRecord, index: number): (string | Record<string, boolean>)[] {
-  const sev = toText(getValueByPath(row, props.severityField)).toLowerCase()
+  const sev = props.severityBar ? toText(getValueByPath(row, props.severityField)).toLowerCase() : ''
   return [
     sev ? `csg-sev--${sev.replace(/[^a-z0-9_-]/g, '')}` : '',
     {
@@ -818,6 +836,8 @@ function onRowClick(e: MouseEvent, item: Item & { pos: number }): void {
     sel.toggle(item.row)
     return
   }
+  // 편집 가능 셀 클릭은 상세 패널을 열지 않는다 (패널이 셀을 가려 더블클릭 편집이 막히는 문제 방지)
+  if ((e.target as HTMLElement | null)?.closest?.('.csg-td--editable')) return
   detailRow.value = detailRow.value === item.row && detailMode.value === 'side' ? null : item.row
   emit('row-click', item.row, item.index)
 }
@@ -888,6 +908,7 @@ function onGridKeydown(e: KeyboardEvent): void {
       break
     case 'Enter':
       if (it?.kind === 'group') toggleNode(it.node)
+      else if (it?.kind === 'row' && e.shiftKey) openPayloadWindow(it.row)
       else if (it?.kind === 'row') openDetail(it.row, 'fields')
       else if (it?.kind === 'more') loadNode(it.node)
       break
@@ -964,7 +985,8 @@ function exportData(format: 'csv' | 'json', scope: 'all' | 'selected' = 'all'): 
 }
 
 // ================================================================ cell edit
-const editing = ref<{ row: LogRecord; field: string; value: string } | null>(null)
+// shallowRef: 행 객체를 Proxy 로 감싸지 않아야 원본 행과 동일성(===) 비교가 된다
+const editing = shallowRef<{ row: LogRecord; field: string; value: string } | null>(null)
 
 function isEditable(col: GridColumn, row: LogRecord): boolean {
   const e = col.editable
@@ -1044,6 +1066,14 @@ function cellMenuItems(row: LogRecord, col?: GridColumn): MenuItem[] {
   items.push({ label: t.viewDetail, shortcut: 'Enter', action: () => openDetail(row, 'fields') })
   if (hasPayload(row)) items.push({ label: `${t.payload} ${t.viewPayload}`, action: () => openDetail(row, 'payload') })
   items.push({ label: t.popout, action: () => openDetail(row, 'fields', 'modal') })
+  if (feat.value.payloadWindows) {
+    const withPayload = multi ? target.filter(hasPayload) : []
+    if (withPayload.length >= 2 || hasPayload(row)) items.push({ separator: true })
+    if (hasPayload(row)) items.push({ label: `⧉ ${t.openWindow}`, shortcut: 'Shift+Enter', action: () => openPayloadWindow(row) })
+    if (withPayload.length >= 2) items.push({ label: `⧉ ${fmtMsg(t.openWindows, withPayload.length)}`, action: () => openPayloadWindows(withPayload) })
+    if (withPayload.length === 2)
+      items.push({ label: `⇄ ${t.comparePayload}`, action: () => comparePayloads(withPayload[0], withPayload[1]) })
+  }
   return items
 }
 
@@ -1127,6 +1157,88 @@ function startPanelResize(e: PointerEvent): void {
     panelWidth.value = Math.min(max, Math.max(260, Math.round(startW - dx)))
   })
 }
+
+// ================================================================ payload floating windows / compare
+const wins = useWindows(() => props.maxWindows)
+const { list: winList, activeId: activeWinId } = wins
+const compareFrom = ref<number | null>(null)
+const payloadWins = computed(() => winList.value.filter((w) => w.kind === 'payload'))
+
+const metaFields = computed<GridColumn[]>(() =>
+  props.windowFields
+    ? props.windowFields.map((f) => props.columns.find((c) => c.field === f) ?? { field: f })
+    : visibleCols.value.slice(0, 4),
+)
+
+function payloadOf(row: LogRecord): { value: unknown; encoding: string | null } {
+  const f = payloadFields.value.find((p) => {
+    const v = getValueByPath(row, p)
+    return v != null && v !== ''
+  })
+  const enc = getValueByPath(row, props.payloadEncodingField)
+  return { value: f ? getValueByPath(row, f) : undefined, encoding: enc == null ? null : String(enc) }
+}
+
+function rowTitle(row: LogRecord): string {
+  if (props.windowTitle) return props.windowTitle(row)
+  const parts = metaFields.value
+    .slice(0, 2)
+    .map((c) => cellText(c, row))
+    .filter(Boolean)
+  return parts.join(' · ') || m.value.payload
+}
+
+function diffInput(row: LogRecord): DiffInput {
+  return { ...payloadOf(row), label: rowTitle(row) }
+}
+
+function openPayloadWindow(row: LogRecord | null | undefined): void {
+  if (!row || !feat.value.payloadWindows) return
+  wins.open('payload', [row], rowTitle(row))
+}
+
+function openPayloadWindows(rows: readonly LogRecord[]): void {
+  const list = rows.filter(hasPayload).slice(0, props.maxWindows)
+  list.forEach((r) => wins.open('payload', [r], rowTitle(r)))
+  if (list.length > 1) wins.tile()
+}
+
+function comparePayloads(a: LogRecord, b: LogRecord): void {
+  if (!feat.value.payloadWindows) return
+  const vw = typeof window === 'undefined' ? 1280 : window.innerWidth
+  const vh = typeof window === 'undefined' ? 800 : window.innerHeight
+  wins.open('diff', [a, b], `${rowTitle(a)}  ⇄  ${rowTitle(b)}`, { w: Math.min(1100, vw - 32), h: Math.min(640, vh - 64) })
+}
+
+/** 창의 ⇄ 버튼: 첫 번째로 누른 창 → 두 번째로 누른 창과 비교 */
+function onCompareClick(w: FloatWin): void {
+  if (compareFrom.value === null || compareFrom.value === w.id) {
+    compareFrom.value = compareFrom.value === w.id ? null : w.id
+    if (compareFrom.value !== null) notify(m.value.compareHint)
+    return
+  }
+  const from = winList.value.find((x) => x.id === compareFrom.value)
+  compareFrom.value = null
+  if (from) comparePayloads(from.rows[0], w.rows[0])
+}
+
+/** 작업표시줄 비교: 가장 최근에 본 두 Payload 창 */
+function compareRecent(): void {
+  const list = [...payloadWins.value].sort((a, b) => b.order - a.order)
+  if (list.length >= 2) comparePayloads(list[1].rows[0], list[0].rows[0])
+}
+
+function onWinClose(id: number): void {
+  if (compareFrom.value === id) compareFrom.value = null
+  wins.close(id)
+}
+
+function closeAllWindows(): void {
+  compareFrom.value = null
+  wins.closeAll()
+}
+
+const selWithPayload = computed(() => selRows.value.filter(hasPayload))
 
 // ================================================================ group chart
 const chartChildren = (node: GroupNode): GroupNode[] | undefined =>
@@ -1323,6 +1435,11 @@ defineExpose({
   },
   copySelection: () => copyRows(selRows.value),
   exportData,
+  openPayloadWindow,
+  openPayloadWindows,
+  comparePayloads,
+  tileWindows: () => wins.tile(),
+  closeAllWindows,
   getState,
   applyState,
   resetState,
@@ -1331,7 +1448,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="csg" :class="`csg--${theme}`" :style="rootStyle" @keydown="onRootKeydown">
+  <div class="csg" :class="[`csg--${theme}`, { 'csg--sevbar': severityBar }]" :style="rootStyle" @keydown="onRootKeydown">
     <!-- ============================== toolbar -->
     <form class="csg-toolbar" role="search" @submit.prevent="search()">
       <SearchBox
@@ -1517,6 +1634,19 @@ defineExpose({
       <button type="button" class="csg-link-btn" @click="copyRows(selRows)">{{ m.copyRows }}</button>
       <button v-if="feat.export" type="button" class="csg-link-btn" @click="exportData('csv', 'selected')">CSV</button>
       <button v-if="feat.export" type="button" class="csg-link-btn" @click="exportData('json', 'selected')">JSON</button>
+      <template v-if="feat.payloadWindows && selWithPayload.length">
+        <button type="button" class="csg-link-btn" @click="openPayloadWindows(selWithPayload)">
+          ⧉ {{ fmtMsg(m.openWindows, selWithPayload.length) }}
+        </button>
+        <button
+          v-if="selWithPayload.length === 2"
+          type="button"
+          class="csg-link-btn"
+          @click="comparePayloads(selWithPayload[0], selWithPayload[1])"
+        >
+          ⇄ {{ m.comparePayload }}
+        </button>
+      </template>
       <slot name="selection-actions" :rows="selRows" :clear="sel.clear" />
       <span class="csg-status__spacer" />
       <button type="button" class="csg-link-btn" @click="sel.clear()">{{ m.clearSelection }}</button>
@@ -1773,13 +1903,15 @@ defineExpose({
           :payload-encoding-field="payloadEncodingField"
           :highlight="highlightRe"
           :messages="m"
+          :can-open-window="feat.payloadWindows"
           @close="closeDetail"
           @filter="addFilter"
           @toggle-mode="detailMode = 'modal'"
+          @open-window="openPayloadWindow(detailRow)"
         />
       </aside>
 
-      <div v-if="notice" class="csg-toast" role="status">{{ notice }}</div>
+      <div v-if="notice" class="csg-toast" :class="{ 'csg-toast--raised': winList.length }" role="status">{{ notice }}</div>
     </div>
 
     <!-- ============================== modal detail -->
@@ -1793,11 +1925,72 @@ defineExpose({
           :payload-encoding-field="payloadEncodingField"
           :highlight="highlightRe"
           :messages="m"
+          :can-open-window="feat.payloadWindows"
           @close="closeDetail"
           @filter="addFilter"
           @toggle-mode="detailMode = 'side'"
+          @open-window="(openPayloadWindow(detailRow), closeDetail())"
         />
       </div>
+    </div>
+
+    <!-- ============================== payload floating windows (브라우저 새 창 아님) -->
+    <FloatingWindow
+      v-for="w in winList"
+      :key="w.id"
+      :win="w"
+      :active="w.id === activeWinId"
+      :messages="m"
+      @focus="wins.focus(w.id)"
+      @close="onWinClose(w.id)"
+      @minimize="wins.toggleMin(w.id)"
+      @maximize="wins.toggleMax(w.id)"
+      @update="wins.update(w.id, $event)"
+    >
+      <template v-if="w.kind === 'payload'" #actions>
+        <button
+          type="button"
+          class="csg-win__btn csg-win__cmp"
+          :class="{ 'csg-win__cmp--on': compareFrom === w.id }"
+          :aria-pressed="compareFrom === w.id"
+          :title="m.compare"
+          :aria-label="m.compare"
+          @click="onCompareClick(w)"
+        >
+          ⇄
+        </button>
+      </template>
+      <template v-if="w.kind === 'payload'">
+        <dl class="csg-win__meta">
+          <div v-for="c in metaFields" :key="c.field" class="csg-win__kv">
+            <dt>{{ c.label ?? c.field }}</dt>
+            <dd :title="cellText(c, w.rows[0])">{{ cellText(c, w.rows[0]) || '—' }}</dd>
+          </div>
+        </dl>
+        <PayloadViewer :value="payloadOf(w.rows[0]).value" :encoding="payloadOf(w.rows[0]).encoding" :messages="m" />
+      </template>
+      <PayloadDiff v-else :left="diffInput(w.rows[0])" :right="diffInput(w.rows[1])" :messages="m" />
+    </FloatingWindow>
+
+    <div v-if="winList.length" class="csg-windock" role="toolbar" :aria-label="m.windows">
+      <span class="csg-windock__label">{{ m.windows }} {{ winList.length }}</span>
+      <div class="csg-windock__items">
+        <button
+          v-for="w in winList"
+          :key="w.id"
+          type="button"
+          class="csg-windock__item"
+          :class="{ 'csg-windock__item--on': w.id === activeWinId, 'csg-windock__item--min': w.minimized }"
+          :title="w.title"
+          @click="w.id === activeWinId ? wins.toggleMin(w.id) : wins.focus(w.id)"
+        >
+          {{ w.kind === 'diff' ? '⇄' : '⧉' }} {{ w.title }}
+        </button>
+      </div>
+      <button v-if="payloadWins.length >= 2" type="button" class="csg-link-btn" @click="compareRecent">⇄ {{ m.compare }}</button>
+      <button type="button" class="csg-link-btn" @click="wins.tile()">{{ m.tile }}</button>
+      <button type="button" class="csg-link-btn" @click="wins.cascade()">{{ m.cascade }}</button>
+      <button type="button" class="csg-link-btn" @click="closeAllWindows">{{ m.closeAll }}</button>
     </div>
 
     <ContextMenu v-if="menu" :items="menu.items" :x="menu.x" :y="menu.y" @close="closeMenu" />

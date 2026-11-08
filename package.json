@@ -31,21 +31,25 @@
     "test:watch": "vitest",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f"
+    "docker:logs": "docker compose logs -f",
+    "manual": "node docs/manual/build-manual.cjs && powershell -ExecutionPolicy Bypass -File docs/manual/finalize-word.ps1",
+    "manual:shots": "node docs/manual/capture-screenshots.cjs docs/manual/images"
   },
   "peerDependencies": {
     "vue": "^3.4.0"
   },
   "devDependencies": {
-    "vue": "^3.5.45",
     "@types/node": "^26.6.6",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vue/test-utils": "^2.5.1",
+    "docx": "^9.15.3",
     "jsdom": "^31.0.0",
+    "playwright-core": "^1.65.0",
     "typescript": "^6.0.3",
     "vite": "^8.3.6",
     "vite-plugin-dts": "^5.1.2",
     "vitest": "^5.1.0",
+    "vue": "^3.5.45",
     "vue-tsc": "^3.3.14"
   }
 }

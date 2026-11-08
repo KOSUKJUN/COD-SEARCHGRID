@@ -7,7 +7,31 @@ import GroupChart from './components/GroupChart.vue'
 import FilterBuilder from './components/FilterBuilder.vue'
 import ContextMenu from './components/ContextMenu.vue'
 
-export { SearchGrid, PayloadViewer, EventDetail, GroupPanel, GroupChart, FilterBuilder, ContextMenu }
+import FloatingWindow from './components/FloatingWindow.vue'
+import PayloadDiff from './components/PayloadDiff.vue'
+
+export {
+  SearchGrid,
+  PayloadViewer,
+  PayloadDiff,
+  FloatingWindow,
+  EventDetail,
+  GroupPanel,
+  GroupChart,
+  FilterBuilder,
+  ContextMenu,
+}
+export { useWindows, type FloatWin, type FloatWinKind, type WinGeometry } from './composables/useWindows'
+export {
+  diffLines,
+  diffTexts,
+  inlineDiff,
+  stableJson,
+  toSideBySide,
+  type DiffInput,
+  type DiffResult,
+  type DiffRow,
+} from './utils/diff'
 export * from './types'
 export { DEFAULT_MESSAGES, fmtMsg } from './messages'
 export { toCSV, toTSV, toJSON, downloadText, copyText, type ExportFormat } from './utils/export'
@@ -46,6 +70,7 @@ export const CodSearchGrid: Plugin = {
   install(app: App) {
     app.component('CodSearchGrid', SearchGrid)
     app.component('CodPayloadViewer', PayloadViewer)
+    app.component('CodPayloadDiff', PayloadDiff)
   },
 }
 
