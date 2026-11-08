@@ -1,0 +1,40 @@
+name: cod-searchgrid
+
+services:
+  # SIEM 스타일 가짜 로그 검색 API
+  mock-api:
+    image: node:24-alpine
+    working_dir: /app
+    command: ["node", "mock-server/server.mjs"]
+    environment:
+      PORT: "3001"
+      EVENTS: "50000"
+      LATENCY_MS: "120"
+    volumes:
+      - ./package.json:/app/package.json:ro
+      - ./mock-server:/app/mock-server:ro
+      - ./src/utils:/app/src/utils:ro
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # 컴포넌트 playground (Vite dev server, 소스 bind mount → HMR)
+  playground:
+    build: .
+    depends_on:
+      mock-api:
+        condition: service_healthy
+    environment:
+      MOCK_API_URL: http://mock-api:3001
+      VITE_USE_POLLING: "true"
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    restart: unless-stopped
