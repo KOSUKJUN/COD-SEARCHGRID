@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { buildFilterToken, filterRecords, highlightTerms, parseQuery, tokenize } from '../src/utils/query'
+import {
+  buildFilterToken,
+  conditionsToQuery,
+  filterRecords,
+  highlightTerms,
+  parseQuery,
+  queryToConditions,
+  tokenize,
+} from '../src/utils/query'
+import { tokenAt } from '../src/utils/suggest'
+import { toCSV, toTSV } from '../src/utils/export'
 
 const rows = [
   { host: 'web-01', severity: 'high', dest_port: 443, message: 'Connection refused by upstream', geo: { country: 'KR' } },
@@ -47,6 +57,48 @@ describe('filterRecords', () => {
   })
   it('빈 쿼리는 전체', () => {
     expect(filterRecords(rows, '  ')).toHaveLength(3)
+  })
+})
+
+describe('conditions (고급 필터)', () => {
+  it('쿼리 ↔ 조건 왕복 변환', () => {
+    const q = 'host=*web* severity!=info port>=1024 user=* geo!=* "a b" NOT blocked'
+    const conds = queryToConditions(q)
+    expect(conds).toEqual([
+      { field: 'host', op: 'contains', value: 'web' },
+      { field: 'severity', op: '!=', value: 'info' },
+      { field: 'port', op: '>=', value: '1024' },
+      { field: 'user', op: 'exists', value: '' },
+      { field: 'geo', op: 'not_exists', value: '' },
+      { field: '', op: 'text', value: 'a b' },
+      { field: '', op: 'not_text', value: 'blocked' },
+    ])
+    expect(conditionsToQuery(conds)).toBe(q)
+  })
+  it('값이 빈 조건은 무시, 연산자가 있는 텍스트는 따옴표', () => {
+    expect(
+      conditionsToQuery([
+        { field: 'host', op: '=', value: '' },
+        { field: '', op: 'text', value: 'a=b' },
+      ]),
+    ).toBe('"a=b"')
+  })
+})
+
+describe('tokenAt', () => {
+  it('커서 위치 토큰 (따옴표 내부 공백 포함)', () => {
+    expect(tokenAt('a host=we b', 8)).toEqual({ start: 2, end: 9, token: 'host=we' })
+    expect(tokenAt('msg="a b" x', 6)).toEqual({ start: 0, end: 9, token: 'msg="a b"' })
+  })
+})
+
+describe('export', () => {
+  it('CSV 는 BOM + 이스케이프', () => {
+    const csv = toCSV([{ a: 'x,y', b: 'say "hi"' }], [{ field: 'a', label: 'A' }, { field: 'b' }])
+    expect(csv).toBe('﻿A,b\r\n"x,y","say ""hi"""')
+  })
+  it('TSV 는 탭/개행 제거', () => {
+    expect(toTSV([{ a: 'x\ty\nz' }], [{ field: 'a' }])).toBe('a\nx y z')
   })
 })
 

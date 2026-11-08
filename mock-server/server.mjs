@@ -3,11 +3,13 @@
 //   GET /api/health
 //   GET /api/search?q=<query>&offset=0&limit=200&sort=_time&order=desc
 //     → { rows, total, took }
+//   GET /api/search?q=<query>&groupBy=<field>&limit=500
+//     → { rows: [], groups: [{ value, count }], total, took }
 //
 // 환경 변수: PORT(3001), EVENTS(50000), LATENCY_MS(120)
 import { createServer } from 'node:http'
 import { generateEvents } from './generate.ts'
-import { compareValues, filterRecords, getValueByPath } from '../src/utils/query.ts'
+import { compareValues, filterRecords, getValueByPath, groupCounts } from '../src/utils/query.ts'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const EVENTS = Number(process.env.EVENTS ?? 50000)
@@ -55,10 +57,18 @@ const server = createServer((req, res) => {
     const t0 = performance.now()
     const q = url.searchParams.get('q') ?? ''
     const offset = Math.max(0, Number(url.searchParams.get('offset') ?? 0) || 0)
-    const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get('limit') ?? 200) || 200))
+    const groupBy = url.searchParams.get('groupBy') ?? ''
+    const limit = Math.min(groupBy ? 5000 : 1000, Math.max(1, Number(url.searchParams.get('limit') ?? 200) || 200))
     const sort = url.searchParams.get('sort') ?? ''
     const order = url.searchParams.get('order') === 'asc' ? 'asc' : 'desc'
     try {
+      if (groupBy) {
+        const rows = search(q, '', order)
+        const groups = groupCounts(rows, groupBy, sort ? { field: sort, order } : null).slice(offset, offset + limit)
+        const took = Math.round(performance.now() - t0)
+        setTimeout(() => send(res, 200, { rows: [], groups, total: rows.length, took }), LATENCY_MS)
+        return
+      }
       const rows = search(q, sort, order)
       const page = rows.slice(offset, offset + limit)
       const took = Math.round(performance.now() - t0)

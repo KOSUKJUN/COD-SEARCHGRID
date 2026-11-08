@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef } from 'vue'
 // playground 는 배포 패키지와 같은 진입점(src/index.ts)을 사용한다
-import { SearchGrid, type DataSource, type GridColumn, type LogRecord } from '../src'
+import {
+  SearchGrid,
+  type CellEditEvent,
+  type ContextMenuContext,
+  type DataSource,
+  type GridColumn,
+  type LogRecord,
+  type MenuItem,
+} from '../src'
 import { generateEvents } from '../mock-server/generate'
 
 type Mode = 'remote' | 'local'
@@ -11,7 +19,30 @@ const theme = ref<'light' | 'dark'>(
   window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
 )
 const query = ref('')
+const groupBy = ref<string[]>([])
+const groupPresets: { label: string; fields: string[] }[] = [
+  { label: 'severity', fields: ['severity'] },
+  { label: 'sourcetype › severity', fields: ['sourcetype', 'severity'] },
+  { label: 'geo.country › host › action', fields: ['geo.country', 'host', 'action'] },
+]
 const lastClicked = ref<LogRecord | null>(null)
+const lastAction = ref('')
+function onCellEdit(e: CellEditEvent) {
+  lastAction.value = `edit ${String(e.row.event_id)}.${e.field} = ${String(e.value)}`
+}
+function createTicket(rows: LogRecord[], clear: () => void) {
+  lastAction.value = `ticket: ${rows.length} events`
+  clear()
+}
+// 컨텍스트 메뉴 확장 예시
+const contextMenu = (ctx: ContextMenuContext): MenuItem[] =>
+  ctx.row
+    ? [
+        ...ctx.defaults,
+        { separator: true },
+        { label: '🎫 티켓 생성 (예시)', action: () => (lastAction.value = `ticket: ${String(ctx.row?.event_id)}`) },
+      ]
+    : ctx.defaults
 
 const columns: GridColumn[] = [
   {
@@ -34,12 +65,16 @@ const columns: GridColumn[] = [
   { field: 'dest_ip', label: 'Dest IP', width: 130 },
   { field: 'dest_port', label: 'Port', width: 70, align: 'right' },
   { field: 'geo.country', label: 'Country', width: 80 },
+  { field: 'triage', label: 'Triage (편집)', width: 130, editable: true, groupable: false },
   { field: 'message', label: 'Message', width: 640 },
+  { field: 'bytes', label: 'Bytes', width: 90, align: 'right', hidden: true },
+  { field: 'event_id', label: 'Event ID', width: 120, hidden: true },
 ]
 
 // --- 원격 모드: docker 의 mock-api (/api 프록시) 호출
-const remoteSource: DataSource = async ({ query, offset, limit, sort, signal }) => {
+const remoteSource: DataSource = async ({ query, offset, limit, sort, groupBy, signal }) => {
   const params = new URLSearchParams({ q: query, offset: String(offset), limit: String(limit) })
+  if (groupBy) params.set('groupBy', groupBy)
   if (sort) {
     params.set('sort', sort.field)
     params.set('order', sort.order)
@@ -91,22 +126,38 @@ const grid = ref<InstanceType<typeof SearchGrid> | null>(null)
       <span>예시:</span>
       <button v-for="ex in examples" :key="ex" class="chip" @click="grid?.search(ex)">{{ ex }}</button>
     </div>
+    <div class="examples">
+      <span>그룹:</span>
+      <button v-for="p in groupPresets" :key="p.label" class="chip" @click="groupBy = [...p.fields]">{{ p.label }}</button>
+      <button class="chip" @click="groupBy = []">해제</button>
+      <span class="hint">헤더를 드래그해도 됩니다 · 행 더블클릭 → Payload</span>
+    </div>
 
     <main class="content">
       <SearchGrid
         ref="grid"
         :key="mode"
         v-model:query="query"
+        v-model:group-by="groupBy"
         :columns="columns"
         :data-source="dataSource"
         :rows="rows"
         :theme="theme"
         :default-sort="{ field: '_time', order: 'desc' }"
         row-key="event_id"
+        show-row-number
+        storage-key="cod-searchgrid-playground"
+        :context-menu="contextMenu"
+        export-file-name="siem_events"
         @row-click="(row) => (lastClicked = row)"
+        @cell-edit="onCellEdit"
       >
         <template #status>
-          <span v-if="lastClicked">selected: {{ lastClicked.event_id }}</span>
+          <span v-if="lastAction">{{ lastAction }}</span>
+          <span v-else-if="lastClicked">clicked: {{ lastClicked.event_id }}</span>
+        </template>
+        <template #selection-actions="{ rows: selected, clear }">
+          <button type="button" class="csg-link-btn" @click="createTicket(selected, clear)">🎫 티켓 생성</button>
         </template>
       </SearchGrid>
     </main>
@@ -193,6 +244,10 @@ body,
   border: 1px solid var(--line);
   border-radius: 999px;
   font-family: ui-monospace, Consolas, monospace;
+}
+.examples .hint {
+  margin-left: 8px;
+  opacity: 0.8;
 }
 .content {
   flex: 1;

@@ -203,6 +203,136 @@ export function appendToQuery(query: string, token: string): string {
   return q ? `${q} ${token}` : token
 }
 
+// ------------------------------------------------------------------ group by
+
+/** 그룹 집계 결과 (value === null 은 필드가 없는 레코드) */
+export interface GroupBucket {
+  value: string | null
+  count: number
+}
+
+export function groupKeyOf(v: unknown): string | null {
+  return v == null ? null : stringify(v)
+}
+
+/** 그룹 정렬: 정렬 필드가 그룹 필드면 값 기준, 아니면 건수 내림차순 */
+export function sortBuckets<B extends GroupBucket>(
+  buckets: B[],
+  field: string,
+  sort?: { field: string; order: 'asc' | 'desc' } | null,
+): B[] {
+  if (sort && sort.field === field) {
+    const dir = sort.order === 'asc' ? 1 : -1
+    return buckets.sort((a, b) => {
+      if (a.value === null) return 1
+      if (b.value === null) return -1
+      return dir * compareValues(a.value, b.value)
+    })
+  }
+  return buckets.sort((a, b) => b.count - a.count || compareValues(a.value, b.value))
+}
+
+/** 필드 값별 건수 집계 (서버/클라이언트 공용) */
+export function groupCounts(
+  records: readonly unknown[],
+  field: string,
+  sort?: { field: string; order: 'asc' | 'desc' } | null,
+): GroupBucket[] {
+  const map = new Map<string | null, number>()
+  for (const r of records) {
+    const k = groupKeyOf(getValueByPath(r, field))
+    map.set(k, (map.get(k) ?? 0) + 1)
+  }
+  return sortBuckets(
+    [...map].map(([value, count]) => ({ value, count })),
+    field,
+    sort,
+  )
+}
+
+/** 그룹 drill-down 용 필터 토큰 (값 없음 → field!=*) */
+export function groupFilterToken(field: string, value: string | null): string {
+  return value === null ? `${field}!=*` : buildFilterToken(field, '=', value)
+}
+
+// ------------------------------------------------------------------ filter builder
+
+export type ConditionOp =
+  | FilterOp
+  | 'contains'
+  | 'not_contains'
+  | 'exists'
+  | 'not_exists'
+  /** 필드 무관 자유 텍스트 포함 */
+  | 'text'
+  | 'not_text'
+
+export interface QueryCondition {
+  field: string
+  op: ConditionOp
+  value: string
+}
+
+/** 자유 텍스트 토큰: 공백/연산자/따옴표가 있으면 따옴표로 감싼다 */
+export function quoteTerm(v: string): string {
+  return /[\s"=<>!]/.test(v) || v === 'NOT' || v === 'AND' ? `"${v.replace(/"/g, '')}"` : v
+}
+
+/** 쿼리 문자열 → 조건 목록 (고급 필터 UI 초기화용) */
+export function queryToConditions(query: string): QueryCondition[] {
+  const p = parseQuery(query)
+  const out: QueryCondition[] = []
+  for (const f of p.filters) {
+    const v = f.value
+    const wrapped = v.length > 2 && v.startsWith('*') && v.endsWith('*') && !v.slice(1, -1).includes('*')
+    if ((f.op === '=' || f.op === '!=') && v === '*') out.push({ field: f.field, op: f.op === '=' ? 'exists' : 'not_exists', value: '' })
+    else if ((f.op === '=' || f.op === '!=') && wrapped)
+      out.push({ field: f.field, op: f.op === '=' ? 'contains' : 'not_contains', value: v.slice(1, -1) })
+    else out.push({ field: f.field, op: f.op, value: v })
+  }
+  for (const t of p.terms) out.push({ field: '', op: 'text', value: t })
+  for (const t of p.excludedTerms) out.push({ field: '', op: 'not_text', value: t })
+  return out
+}
+
+/** 조건 목록 → 쿼리 문자열 (값이 비어있는 조건은 무시) */
+export function conditionsToQuery(conditions: readonly QueryCondition[]): string {
+  const parts: string[] = []
+  for (const c of conditions) {
+    const v = c.value.trim()
+    const field = c.field.trim()
+    if (c.op === 'text' || c.op === 'not_text' || !field) {
+      if (!v) continue
+      const neg = c.op === 'not_text' || c.op === '!=' || c.op === 'not_contains' || c.op === 'not_exists'
+      parts.push(neg ? `NOT ${quoteTerm(v)}` : quoteTerm(v))
+      continue
+    }
+    if (c.op === 'exists') parts.push(`${field}=*`)
+    else if (c.op === 'not_exists') parts.push(`${field}!=*`)
+    else if (!v) continue
+    else if (c.op === 'contains') parts.push(buildFilterToken(field, '=', `*${v}*`))
+    else if (c.op === 'not_contains') parts.push(buildFilterToken(field, '!=', `*${v}*`))
+    else parts.push(buildFilterToken(field, c.op, v))
+  }
+  return parts.join(' ')
+}
+
+/** dot path 로 값 설정 (중간 객체가 없으면 생성) */
+export function setValueByPath(record: Record<string, unknown>, path: string, value: unknown): void {
+  if (path in record || !path.includes('.')) {
+    record[path] = value
+    return
+  }
+  const keys = path.split('.')
+  let cur: Record<string, unknown> = record
+  for (let i = 0; i < keys.length - 1; i++) {
+    const next = cur[keys[i]]
+    if (next == null || typeof next !== 'object') cur[keys[i]] = {}
+    cur = cur[keys[i]] as Record<string, unknown>
+  }
+  cur[keys[keys.length - 1]] = value
+}
+
 /** 정렬 비교 함수 (숫자는 숫자로, 그 외는 문자열로) */
 export function compareValues(a: unknown, b: unknown): number {
   if (a == null && b == null) return 0
