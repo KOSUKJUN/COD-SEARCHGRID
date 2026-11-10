@@ -491,8 +491,8 @@ npm install ../COD-SEARCHGRID/cod-searchgrid-${VERSION}.tgz
   ...code(`
 // main.ts
 import { createApp } from 'vue'
-import CodSearchGrid from 'cod-searchgrid'
-import 'cod-searchgrid/style.css'
+import CodSearchGrid from '@codvill/cod-searchgrid'
+import '@codvill/cod-searchgrid/style.css'
 
 createApp(App).use(CodSearchGrid).mount('#app')   // 전역 <CodSearchGrid>, <CodPayloadViewer>, <CodPayloadDiff>
 `),
@@ -501,7 +501,7 @@ createApp(App).use(CodSearchGrid).mount('#app')   // 전역 <CodSearchGrid>, <Co
   P('이미 메모리에 있는 배열을 `rows` 로 넘기면 검색·정렬·그룹핑을 브라우저에서 처리합니다. 그리드는 부모 요소의 높이를 채우므로(`height: 100%`) 부모에 높이를 지정하세요.'),
   ...code(`
 <script setup lang="ts">
-import { SearchGrid, type GridColumn } from 'cod-searchgrid'
+import { SearchGrid, type GridColumn } from '@codvill/cod-searchgrid'
 
 const columns: GridColumn[] = [
   { field: '_time', label: 'Time', width: 190 },
@@ -522,7 +522,7 @@ const rows = await loadEvents()      // LogRecord[]
   H2('3.3 원격 데이터 소스 (DataSource)'),
   P('대용량 검색은 `dataSource` 함수를 넘깁니다. 그리드가 검색·스크롤·정렬·그룹 펼침 때마다 이 함수를 호출하며, 새 검색이 시작되면 이전 요청은 `signal` 로 취소됩니다.'),
   ...code(`
-import type { DataSource } from 'cod-searchgrid'
+import type { DataSource } from '@codvill/cod-searchgrid'
 
 const dataSource: DataSource = async ({ query, offset, limit, sort, groupBy, signal }) => {
   const p = new URLSearchParams({ q: query, offset: String(offset), limit: String(limit) })

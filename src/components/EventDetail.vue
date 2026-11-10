@@ -5,6 +5,9 @@ import { DEFAULT_MESSAGES } from '../messages'
 import { getValueByPath, type FilterOp } from '../utils/query'
 import { HighlightText } from '../utils/highlight'
 import PayloadViewer from './PayloadViewer.vue'
+import PcapViewer from './PcapViewer.vue'
+import { analyzePayload } from '../utils/payload'
+import { looksLikePacket } from '../utils/pcap'
 
 const props = withDefaults(
   defineProps<{
@@ -21,6 +24,8 @@ const props = withDefaults(
     mode?: DetailMode
     /** Payload 탭에 '새 창으로 열기' 버튼 표시 */
     canOpenWindow?: boolean
+    /** payload 가 패킷(pcap / Ethernet / IP)이면 'PCAP 분석' 탭 표시 */
+    pcap?: boolean
   }>(),
   {
     payloadField: () => ['payload', '_raw'],
@@ -30,6 +35,7 @@ const props = withDefaults(
     tab: 'fields',
     mode: undefined,
     canOpenWindow: false,
+    pcap: true,
   },
 )
 
@@ -56,7 +62,18 @@ const payloadEncoding = computed(() => {
   return v == null ? null : String(v)
 })
 
-const activeTab = computed<DetailTab>(() => (props.tab === 'payload' && !payloadKey.value ? 'fields' : props.tab))
+/** payload 가 텍스트가 아닌 패킷 바이너리일 때만 PCAP 탭 */
+const isPacket = computed(() => {
+  if (!props.pcap || payloadValue.value == null) return false
+  const info = analyzePayload(payloadValue.value, payloadEncoding.value)
+  return !!info && info.binary && looksLikePacket(info.bytes)
+})
+
+const activeTab = computed<DetailTab>(() => {
+  if (props.tab === 'payload' && !payloadKey.value) return 'fields'
+  if (props.tab === 'pcap' && !isPacket.value) return payloadKey.value ? 'payload' : 'fields'
+  return props.tab
+})
 
 function flatten(obj: unknown, prefix = '', out: [string, unknown][] = []): [string, unknown][] {
   if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
@@ -84,6 +101,7 @@ function display(v: unknown): string {
 const tabs = computed(() => {
   const out: { id: DetailTab; label: string }[] = [{ id: 'fields', label: props.messages.fields }]
   if (payloadKey.value) out.push({ id: 'payload', label: props.messages.payload })
+  if (isPacket.value) out.push({ id: 'pcap', label: props.messages.pcap })
   out.push({ id: 'json', label: props.messages.raw })
   return out
 })
@@ -160,6 +178,8 @@ const tabs = computed(() => {
         </button>
       </template>
     </PayloadViewer>
+
+    <PcapViewer v-else-if="activeTab === 'pcap'" :value="payloadValue" :encoding="payloadEncoding" :messages="messages" />
 
     <pre v-else class="csg-detail__raw">{{ json }}</pre>
   </div>

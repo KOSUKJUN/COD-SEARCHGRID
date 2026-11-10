@@ -1,0 +1,36 @@
+name: Trello sync
+
+# trello/<shortLink>-... 브랜치의 PR 이 main 에 머지되면 Trello 카드를 Done 으로 옮긴다.
+# 저장소 Secrets: TRELLO_API_KEY, TRELLO_TOKEN (없으면 건너뜀)
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  card-done:
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'trello/')
+    runs-on: ubuntu-latest
+    env:
+      TRELLO_API_KEY: ${{ secrets.TRELLO_API_KEY }}
+      TRELLO_TOKEN: ${{ secrets.TRELLO_TOKEN }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Move Trello card to Done
+        run: |
+          if [ -z "$TRELLO_API_KEY" ] || [ -z "$TRELLO_TOKEN" ]; then
+            echo "Trello secrets not configured — skip"; exit 0
+          fi
+          card="${HEAD_REF#trello/}"
+          card="${card%%-*}"
+          if ! [[ "$card" =~ ^[A-Za-z0-9]{8}$ ]]; then
+            echo "branch '$HEAD_REF' has no Trello shortLink — skip"; exit 0
+          fi
+          node scripts/trello/trello.ts done "$card" --pr "$PR_URL"

@@ -75,7 +75,7 @@ export type RowKey = string | ((row: LogRecord, index: number) => string | numbe
 
 export type GridTheme = 'light' | 'dark'
 
-export type DetailTab = 'fields' | 'payload' | 'json'
+export type DetailTab = 'fields' | 'payload' | 'pcap' | 'json'
 
 export type DetailMode = 'side' | 'modal'
 
@@ -131,6 +131,8 @@ export interface GridFeatures {
   groupChart: boolean
   /** Payload 플로팅 창 / 비교 */
   payloadWindows: boolean
+  /** 상세보기 PCAP 분석 탭 (패킷 payload 일 때) */
+  pcapAnalyzer: boolean
 }
 
 export interface ColumnState {
@@ -177,6 +179,16 @@ export interface GridMessages {
   retry: string
   noPayload: string
   viewPayload: string
+  pcap: string
+  pcapNotPacket: string
+  pcapFilter: string
+  pcapPackets: string
+  pcapNoMatch: string
+  pcapDownload: string
+  pcapDownloadHint: string
+  pcapPacketList: string
+  pcapTree: string
+  pcapBytes: string
   copy: string
   copied: string
   wrap: string

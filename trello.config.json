@@ -1,0 +1,11 @@
+{
+  "board": "",
+  "sourceLists": ["To Do", "Bugs", "Backlog", "할 일", "버그"],
+  "labels": [],
+  "inProgressList": "In Progress",
+  "reviewList": "Review",
+  "doneList": "Done",
+  "branchPrefix": "trello/",
+  "comment": true,
+  "moveCards": true
+}

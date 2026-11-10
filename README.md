@@ -64,28 +64,67 @@ npm run dev     # 터미널 2: playground
 | `npm run typecheck` | vue-tsc 타입 체크 |
 | `npm run build` | 라이브러리 빌드 → `dist/` (ESM, UMD, d.ts, style.css) |
 
+## Trello 연동 (이슈·버그 → 소스 반영)
+
+Trello 보드의 이슈/버그 카드를 검색해서 Claude Code 로 수정하고, 결과를 카드에 다시 알립니다.
+
+1. `.env.example` 을 `.env.local` 로 복사해 `TRELLO_API_KEY`, `TRELLO_TOKEN`, `TRELLO_BOARD` 를 채웁니다 (GitHub 에 올라가지 않음).
+2. 보드의 리스트 이름에 맞게 `trello.config.json` 을 수정합니다 (대상 리스트·라벨, In Progress / Review / Done 리스트 이름).
+3. `npm run trello -- check` 로 연결을 확인합니다.
+4. Claude Code 에서 **"트렐로 이슈 반영해줘"** 라고 요청하면 `.claude/skills/trello-sync` 워크플로대로
+   카드 확인 → 카드별 브랜치(`trello/<shortLink>-...`) → 수정·테스트 → PR → 카드에 PR 링크 댓글·첨부 + Review 이동 순으로 처리합니다.
+   main 에 직접 반영하지 않으며 PR 머지는 사람이 합니다.
+5. (선택) GitHub 저장소 Secrets 에 `TRELLO_API_KEY`, `TRELLO_TOKEN` 을 등록하면 `trello/…` PR 이 머지될 때 카드가 자동으로 Done 으로 이동합니다 (`.github/workflows/trello.yml`).
+
+| 명령 | 설명 |
+| --- | --- |
+| `npm run trello -- check` | 인증·보드·리스트·라벨 확인 |
+| `npm run trello -- list [--all]` | 작업 대상 카드 (설정 조건) |
+| `npm run trello -- search "label:bug 스크롤"` | 보드 내 검색 |
+| `npm run trello -- show <card>` | 카드 상세 (설명·체크리스트·첨부·댓글) |
+| `npm run trello -- start <card>` | In Progress 이동 + 브랜치명 출력 |
+| `npm run trello -- review <card> --pr <url>` | PR 첨부·댓글 + Review 이동 |
+| `npm run trello -- done <card>` / `comment` / `move` | 완료 / 댓글 / 리스트 이동 |
+
 ## 다른 프로젝트에서 사용
 
-npm 레지스트리 배포 전에는 GitHub 에서 직접 설치합니다.
+사내 npm 레지스트리(`codvill-npm`)에서 설치합니다 (Vue 3.4 이상 필요).
 
-```bash
-npm install github:<owner>/COD-SEARCHGRID
+1. 사용하는 프로젝트 루트의 `.npmrc` 에 `@codvill` 스코프 레지스트리를 추가합니다.
+   (`@codvill/*` 만 사내 레지스트리에서, `vue` 등 나머지는 npmjs 에서 받습니다.)
+
+```ini
+@codvill:registry=http://192.168.0.102:20000/repository/codvill-npm/
 ```
 
-> GitHub 설치 시 `dist/` 가 필요하므로, 배포 방식(GitHub Packages / npm / 태그 릴리스)은 추후 확정합니다.
+2. 설치합니다.
+
+```bash
+npm install @codvill/cod-searchgrid
+```
+
+> `registry=` 전체를 사내 주소로 바꾸면 `vue` 등 공개 패키지를 찾지 못해 설치가 실패합니다. 반드시 스코프 설정을 사용하세요.
+
+### 배포 (관리자)
+
+```bash
+npm login --registry=http://192.168.0.102:20000/repository/codvill-npm/ --auth-type=legacy
+npm version patch   # 버전 올리기
+npm publish         # publishConfig.registry 로 배포 (prepublishOnly 로 빌드)
+```
 
 ```ts
 // main.ts
 import { createApp } from 'vue'
-import CodSearchGrid from 'cod-searchgrid'
-import 'cod-searchgrid/style.css'
+import CodSearchGrid from '@codvill/cod-searchgrid'
+import '@codvill/cod-searchgrid/style.css'
 
 createApp(App).use(CodSearchGrid).mount('#app') // 전역 <CodSearchGrid>
 ```
 
 ```vue
 <script setup lang="ts">
-import { SearchGrid, type DataSource, type GridColumn } from 'cod-searchgrid'
+import { SearchGrid, type DataSource, type GridColumn } from '@codvill/cod-searchgrid'
 
 const columns: GridColumn[] = [
   { field: '_time', label: 'Time', width: 190 },

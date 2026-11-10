@@ -180,6 +180,7 @@ const DEFAULT_FEATURES: GridFeatures = {
   keyboard: true,
   groupChart: true,
   payloadWindows: true,
+  pcapAnalyzer: true,
 }
 const CHECK_W = 36
 const NUM_W = 56
@@ -1904,6 +1905,7 @@ defineExpose({
           :highlight="highlightRe"
           :messages="m"
           :can-open-window="feat.payloadWindows"
+          :pcap="feat.pcapAnalyzer"
           @close="closeDetail"
           @filter="addFilter"
           @toggle-mode="detailMode = 'modal'"
@@ -1926,6 +1928,7 @@ defineExpose({
           :highlight="highlightRe"
           :messages="m"
           :can-open-window="feat.payloadWindows"
+          :pcap="feat.pcapAnalyzer"
           @close="closeDetail"
           @filter="addFilter"
           @toggle-mode="detailMode = 'side'"

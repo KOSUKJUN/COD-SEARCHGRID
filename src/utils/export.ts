@@ -45,7 +45,10 @@ export function toJSON(rows: readonly LogRecord[]): string {
 }
 
 export function downloadText(content: string, fileName: string, mime: string): void {
-  const blob = new Blob([content], { type: `${mime};charset=utf-8` })
+  downloadBlob(new Blob([content], { type: `${mime};charset=utf-8` }), fileName)
+}
+
+export function downloadBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

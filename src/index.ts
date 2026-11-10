@@ -1,6 +1,7 @@
 import type { App, Plugin } from 'vue'
 import SearchGrid from './components/SearchGrid.vue'
 import PayloadViewer from './components/PayloadViewer.vue'
+import PcapViewer from './components/PcapViewer.vue'
 import EventDetail from './components/EventDetail.vue'
 import GroupPanel from './components/GroupPanel.vue'
 import GroupChart from './components/GroupChart.vue'
@@ -13,6 +14,7 @@ import PayloadDiff from './components/PayloadDiff.vue'
 export {
   SearchGrid,
   PayloadViewer,
+  PcapViewer,
   PayloadDiff,
   FloatingWindow,
   EventDetail,
@@ -64,12 +66,29 @@ export {
   type PayloadInfo,
   type PayloadView,
 } from './utils/payload'
+export {
+  analyzeCapture,
+  parseCapture,
+  dissectFrame,
+  looksLikePacket,
+  isCaptureFile,
+  matchPacketFilter,
+  toPcapFile,
+  LINKTYPE,
+  type PcapCapture,
+  type PcapFrame,
+  type PcapLayer,
+  type PcapField,
+  type PcapSummary,
+  type DissectedFrame,
+} from './utils/pcap'
 
 /** app.use(CodSearchGrid) 로 전역 컴포넌트 <CodSearchGrid>, <CodPayloadViewer> 등록 */
 export const CodSearchGrid: Plugin = {
   install(app: App) {
     app.component('CodSearchGrid', SearchGrid)
     app.component('CodPayloadViewer', PayloadViewer)
+    app.component('CodPcapViewer', PcapViewer)
     app.component('CodPayloadDiff', PayloadDiff)
   },
 }
